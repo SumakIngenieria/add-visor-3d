@@ -15,7 +15,7 @@
 //   data-camara="seguir"      la cámara acompaña a los módulos elegidos (si no, queda fija)
 //   data-direccion="x,y,z"    ángulo desde el que se mira la casa
 //   data-zoom="1.00"          1 = encuadre automático; menos de 1 acerca, más de 1 aleja
-//   data-etiqueta="no"        no muestra el nombre del módulo al pasar el mouse
+//   data-etiqueta="no"        no muestra el tooltip del módulo
 //   data-base="…/"            carpeta de los .glb (por defecto, glb/ junto a este script)
 //   un importmap con "three" y "three/addons/" (ver visor-3d-prueba.html)
 
@@ -108,9 +108,24 @@ function iniciar(contenedor) {
   renderer.domElement.style.height = '100%';
   contenedor.appendChild(renderer.domElement);
 
-  const etiqueta = document.createElement('p');
-  etiqueta.className = 'visor-3d-etiqueta';
-  if (contenedor.dataset.etiqueta !== 'no') contenedor.appendChild(etiqueta);
+  // Tooltip con el mismo texto y estilo que tenían las tarjetas del esquema de planta (.plan-room::after).
+  if (!document.getElementById('visor-3d-estilos')) {
+    const estilos = document.createElement('style');
+    estilos.id = 'visor-3d-estilos';
+    estilos.textContent = `
+      .visor-3d-tooltip { position: absolute; z-index: 20; left: 0; top: 0; width: max-content; max-width: min(220px, 70vw);
+        padding: .65rem .75rem; border: 1px solid var(--black, #000); background: #363636; color: var(--white, #fff);
+        font-size: .72rem; line-height: 1.4; font-weight: 500; letter-spacing: 0; text-transform: none; white-space: pre-line;
+        box-shadow: 3px 3px 0 rgba(0,0,0,.18); pointer-events: none; opacity: 0; visibility: hidden;
+        transition: opacity .16s ease, visibility .16s ease; }
+      .visor-3d-tooltip.visible { opacity: 1; visibility: visible; }
+      .visor-3d-tooltip::first-line { font-weight: 700; }`;
+    document.head.appendChild(estilos);
+  }
+  const tooltip = document.createElement('div');
+  tooltip.className = 'visor-3d-tooltip';
+  tooltip.setAttribute('role', 'status');
+  if (contenedor.dataset.etiqueta !== 'no') contenedor.appendChild(tooltip);
 
   // Gris translúcido para los módulos no elegidos. polygonOffset lo empuja hacia atrás:
   // donde coincide con una pieza activa (el Inicio repetido en otras capas), gana la activa.
@@ -394,41 +409,86 @@ function iniciar(contenedor) {
     });
   }
 
-  function textoEtiqueta(id) {
-    if (id === 'base') return NOMBRES.base + ' · vivienda base';
-    const s = leerSeleccion();
-    if (s.has(id)) return NOMBRES[id] + ' · tocá para quitar';
-    if (id === 'grow' && !s.has('rest')) return NOMBRES.grow + ' · primero agregá ADD. DESCANSO';
-    return NOMBRES[id] + ' · tocá para agregar';
+  // Texto del tooltip: el mismo que armaba la página para cada tarjeta (moduleTooltip), así incluye
+  // descripción, superficie y precio individual del sistema constructivo elegido.
+  function textoTooltip(id) {
+    try {
+      // eslint-disable-next-line no-undef
+      const catalogo = typeof MODULE_CATALOG !== 'undefined' ? MODULE_CATALOG : null;
+      const modulo = catalogo && catalogo.find(m => m.id === id);
+      if (modulo && typeof window.moduleTooltip === 'function') {
+        if (id === 'grow' && !leerSeleccion().has('rest')) return modulo.name + '\nPrimero incorporá ADD. DESCANSO para habilitar este módulo.';
+        return window.moduleTooltip(modulo);
+      }
+    } catch (e) { /* páginas de prueba: sin catálogo */ }
+    if (id === 'grow' && !leerSeleccion().has('rest')) return NOMBRES.grow + '\nPrimero incorporá ADD. DESCANSO para habilitar este módulo.';
+    return NOMBRES[id] || '';
   }
+
+  // Muestra el tooltip junto al puntero (x, y relativos al visor), sin salirse del recuadro.
+  function mostrarTooltip(id, x, y) {
+    tooltip.textContent = textoTooltip(id);
+    tooltip.classList.add('visible');
+    const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+    const W = contenedor.clientWidth, H = contenedor.clientHeight;
+    let left = x + 14, top = y + 18;
+    if (left + w > W - 6) left = x - w - 14;
+    if (top + h > H - 6) top = y - h - 14;
+    tooltip.style.left = Math.max(6, left) + 'px';
+    tooltip.style.top = Math.max(6, top) + 'px';
+  }
+  function ocultarTooltip() { tooltip.classList.remove('visible'); }
 
   function alternar(id) {
     if (id === 'base') return;
-    if (id === 'grow' && !leerSeleccion().has('rest')) { etiqueta.textContent = textoEtiqueta(id); return; }
+    if (id === 'grow' && !leerSeleccion().has('rest')) return;
     // En la página del configurador existe toggleModule(id); en la página de prueba, los botones.
     if (typeof window.toggleModule === 'function') { window.toggleModule(id); aplicar(); }
     else { const el = document.querySelector('[data-module-id="' + id + '"]'); if (el) el.click(); }
-    etiqueta.textContent = textoEtiqueta(id);
   }
 
+  // Mismo comportamiento que tenían las tarjetas:
+  //   computadora: pasar el mouse muestra el tooltip; un clic agrega o quita.
+  //   celular: el primer toque muestra el tooltip; un segundo toque al mismo módulo
+  //            dentro de 650 ms lo agrega o lo quita.
   const lienzo = renderer.domElement;
-  let inicioToque = null;
+  const local = e => { const r = contenedor.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  let inicioToque = null, toqueAnterior = null, relojToque = null;
   lienzo.addEventListener('pointerdown', e => { inicioToque = { x: e.clientX, y: e.clientY }; });
   lienzo.addEventListener('pointerup', e => {
     // Si el dedo o el mouse se movió, fue un giro de cámara, no un toque.
     if (!inicioToque || Math.hypot(e.clientX - inicioToque.x, e.clientY - inicioToque.y) > 6) return;
     inicioToque = null;
     const m = moduloBajo(e);
-    if (m) alternar(m.id);
+    const [x, y] = local(e);
+    if (e.pointerType === 'mouse') {
+      if (!m) return;
+      alternar(m.id);
+      mostrarTooltip(m.id, x, y);
+      return;
+    }
+    if (!m) { ocultarTooltip(); resaltar(null); toqueAnterior = null; return; }
+    const mismoToque = toqueAnterior === m.id;
+    clearTimeout(relojToque);
+    if (!mismoToque) {
+      toqueAnterior = m.id;
+      resaltar(m.id !== 'base' ? m.id : null);
+      mostrarTooltip(m.id, x, y);
+      relojToque = setTimeout(() => { toqueAnterior = null; }, parseInt(contenedor.dataset.dobleToque, 10) || 650);
+      return;
+    }
+    toqueAnterior = null;
+    ocultarTooltip();
+    alternar(m.id);
   });
   lienzo.addEventListener('pointermove', e => {
     if (e.pointerType !== 'mouse' || e.buttons) return;
     const m = moduloBajo(e);
     resaltar(m && m.id !== 'base' ? m.id : null);
     lienzo.style.cursor = m && m.id !== 'base' ? 'pointer' : 'grab';
-    etiqueta.textContent = m ? textoEtiqueta(m.id) : '';
+    if (m) { const [x, y] = local(e); mostrarTooltip(m.id, x, y); } else ocultarTooltip();
   });
-  lienzo.addEventListener('pointerleave', () => { resaltar(null); etiqueta.textContent = ''; });
+  lienzo.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { resaltar(null); ocultarTooltip(); } });
 
   // La página no avisa cuando cambia la selección: se revisa ante cualquier cambio en el DOM
   // (precios, resumen, planta), como máximo una vez por cuadro. Los cambios dentro del visor se ignoran.
