@@ -315,7 +315,12 @@ function iniciar(contenedor) {
     return cargando;
   }
 
+  // Qué módulos están elegidos. En el configurador se lee de selectedIds (la memoria de la página),
+  // así el visor funciona aunque se saque el esquema de planta. Si no existe (páginas de prueba),
+  // se lee de los elementos [data-module-id][aria-pressed="true"].
   function leerSeleccion() {
+    // eslint-disable-next-line no-undef
+    if (typeof selectedIds !== 'undefined' && selectedIds instanceof Set) return new Set(['base', ...selectedIds]);
     const ids = [...document.querySelectorAll('[data-module-id][aria-pressed="true"]')].map(e => e.dataset.moduleId);
     return new Set(['base', ...ids]);
   }
@@ -335,8 +340,13 @@ function iniciar(contenedor) {
   // Prende y apaga capas: las elegidas se ven normales; cada módulo no elegido, en gris con su fantasma.
   // En modo fijo la cámara queda donde está; en modo "seguir" se reencuadra.
   let ultimaSeleccion = '';
+  let ultimoAplicado = '';
   function aplicar() {
     const s = leerSeleccion();
+    // Se llama ante cualquier cambio de la página: solo actúa si cambió la selección o se cargó una capa.
+    const huella = [...s].sort().join(',') + '|' + capas.size;
+    if (huella === ultimoAplicado) return;
+    ultimoAplicado = huella;
     const fantasmaDe = new Map(); // archivo -> módulo no elegido que representa
     for (const [modulo, archivo] of Object.entries(FANTASMAS)) if (!s.has(modulo)) fantasmaDe.set(archivo, modulo);
     for (const archivo of ARCHIVOS) {
@@ -396,7 +406,7 @@ function iniciar(contenedor) {
     if (id === 'base') return;
     if (id === 'grow' && !leerSeleccion().has('rest')) { etiqueta.textContent = textoEtiqueta(id); return; }
     // En la página del configurador existe toggleModule(id); en la página de prueba, los botones.
-    if (typeof window.toggleModule === 'function') window.toggleModule(id);
+    if (typeof window.toggleModule === 'function') { window.toggleModule(id); aplicar(); }
     else { const el = document.querySelector('[data-module-id="' + id + '"]'); if (el) el.click(); }
     etiqueta.textContent = textoEtiqueta(id);
   }
@@ -420,7 +430,14 @@ function iniciar(contenedor) {
   });
   lienzo.addEventListener('pointerleave', () => { resaltar(null); etiqueta.textContent = ''; });
 
-  new MutationObserver(aplicar).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-pressed'] });
+  // La página no avisa cuando cambia la selección: se revisa ante cualquier cambio en el DOM
+  // (precios, resumen, planta), como máximo una vez por cuadro. Los cambios dentro del visor se ignoran.
+  let pendiente = false;
+  new MutationObserver(registros => {
+    if (pendiente || registros.every(r => contenedor.contains(r.target))) return;
+    pendiente = true;
+    requestAnimationFrame(() => { pendiente = false; aplicar(); });
+  }).observe(document.body, { subtree: true, attributes: true, childList: true, characterData: true });
   // Para ajustar-visor.html: lee la vista actual (ángulo y zoom relativo al encuadre automático)
   // y la fija como punto de partida.
   function vista() {
