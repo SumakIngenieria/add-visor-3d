@@ -1,0 +1,11 @@
+{
+  "atributos": {
+    "gris-hover": "neutro",
+    "direccion": "-0.827,1.4,0.875",
+    "aire": "0.94",
+    "margen-arriba": "0.94",
+    "giro": "0.6"
+  },
+  "fecha": "19/10/2026 (vista V2, aire 0,94, giro 0,6)",
+  "div": "<div id=\"visor-3d\" data-gris-hover=\"neutro\" data-direccion=\"-0.827,1.4,0.875\" data-aire=\"0.94\" data-margen-arriba=\"0.94\" data-giro=\"0.6\"></div>"
+}

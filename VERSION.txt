@@ -1,0 +1,16 @@
+Visor 3D ADD. v4 — armado el 19/10/2026
+
+Configuración incluida (config.json):
+{
+  "gris-hover": "neutro",
+  "direccion": "-0.827,1.4,0.875",
+  "aire": "0.94",
+  "margen-arriba": "0.94",
+  "giro": "0.6"
+}
+
+Cómo se usa en la página (no hace falta poner atributos en el div; los toma de config.json):
+  <div id="visor-3d"></div>
+  <script type="module" src="RUTA/v4/visor-3d-add.min.js"></script>
+RUTA es la carpeta donde se subió esta versión (cPanel), o
+https://cdn.jsdelivr.net/gh/SumakIngenieria/add-visor-3d@v4 si se sirve desde GitHub.
