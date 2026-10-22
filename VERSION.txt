@@ -1,4 +1,4 @@
-Visor 3D ADD. v4 — armado el 19/10/2026
+Visor 3D ADD. v5 — armado el 22/10/2026
 
 Configuración incluida (config.json):
 {
@@ -11,6 +11,6 @@ Configuración incluida (config.json):
 
 Cómo se usa en la página (no hace falta poner atributos en el div; los toma de config.json):
   <div id="visor-3d"></div>
-  <script type="module" src="RUTA/v4/visor-3d-add.min.js"></script>
+  <script type="module" src="RUTA/v5/visor-3d-add.min.js"></script>
 RUTA es la carpeta donde se subió esta versión (cPanel), o
-https://cdn.jsdelivr.net/gh/SumakIngenieria/add-visor-3d@v4 si se sirve desde GitHub.
+https://cdn.jsdelivr.net/gh/SumakIngenieria/add-visor-3d@v5 si se sirve desde GitHub.

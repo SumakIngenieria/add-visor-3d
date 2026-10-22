@@ -150,6 +150,10 @@ function iniciar(contenedor) {
         padding: .45rem .7rem; background: rgba(54,54,54,.9); color: #fff; font: 600 .7rem/1 Inter, system-ui, sans-serif; letter-spacing: .06em;
         opacity: 0; transition: opacity .4s ease; white-space: nowrap; }
       .visor-3d-pista.visible { opacity: 1; }
+      .visor-3d-aviso { display: flex; align-items: center; gap: .45rem; transition-duration: .3s; padding: .4rem .6rem;
+        background: none; color: #363636; font-family: inherit; font-size: .68rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+        text-shadow: 0 0 2px #fff, 0 0 6px #fff, 0 0 12px #fff, 0 0 18px #fff; }
+      .visor-3d-aviso svg { flex: none; width: 13px; height: 13px; filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 6px #fff); }
       .visor-3d-barra { display: flex; justify-content: flex-start; margin-top: .75rem; }
       .visor-3d-barra[hidden] { display: none; }
       .visor-3d-solo { display: flex; align-items: center; gap: .75rem;
@@ -352,6 +356,17 @@ function iniciar(contenedor) {
 
   const camara = new THREE.PerspectiveCamera(35, 1, 0.1, 200);
   const controles = new OrbitControls(camara, renderer.domElement);
+  // Arreglo del zoom con dos dedos (22/10): three r160 toma el punto medio de los dedos con pageX/pageY
+  // (medidos desde el principio de la página) y lo compara con el visor medido en pantalla. Con la página
+  // scrolleada, como siempre en el celular, el zoom iba hacia un punto más arriba de los dedos.
+  // Antes de que los vea OrbitControls, pageX/pageY pasan a valer lo mismo que clientX/clientY
+  // (giro y desplazamiento usan diferencias, así que no cambian).
+  for (const tipo of ['pointerdown', 'pointermove', 'pointerup']) {
+    contenedor.addEventListener(tipo, e => {
+      if (e.target !== renderer.domElement) return;
+      Object.defineProperties(e, { pageX: { value: e.clientX }, pageY: { value: e.clientY } });
+    }, { capture: true });
+  }
   controles.target.copy(centro);
   controles.enableDamping = true;
   controles.screenSpacePanning = true;
@@ -1231,6 +1246,34 @@ function iniciar(contenedor) {
   }
   function ocultarPista() { pista.classList.remove('visible'); }
 
+  // Mini tutorial del celular (22/10): un renglón sin recuadro abajo del visor, una vez por visita.
+  //   paso 1, al ver la casa por primera vez: "Tocá un módulo para ver más";
+  //   paso 2, después del primer toque a un módulo: "Doble tap para seleccionar" (o "para quitar");
+  //   con el primer doble tap que suma o quita, se va hasta la próxima visita (sessionStorage: una recarga no lo repite).
+  //   Si después dos toques al mismo módulo llegan lentos (no le salió el doble tap), el paso 2 vuelve una vez.
+  // En la computadora no aparece (ahí es un clic).
+  const aviso = document.createElement('div');
+  aviso.className = 'visor-3d-pista visor-3d-aviso';
+  aviso.setAttribute('aria-hidden', 'true');
+  aviso.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="6.5"/></svg><span></span>';
+  contenedor.appendChild(aviso);
+  const CLAVE_TUTORIAL = 'add3d-tutorial-hecho';
+  let tutorialHecho = matchMedia('(pointer: fine)').matches;
+  try { tutorialHecho = tutorialHecho || sessionStorage.getItem(CLAVE_TUTORIAL) === '1'; } catch (e) { /* sin almacenamiento: se muestra igual */ }
+  let paso1Mostrado = false, recordatorioUsado = false, ultimoToque = null;
+  function mostrarAviso(texto) {
+    aviso.lastChild.textContent = texto;
+    aviso.classList.add('visible');
+  }
+  const textoPaso2 = id => 'Doble tap para ' + (leerSeleccion().has(id) ? 'quitar' : 'seleccionar');
+  function ocultarAviso() { aviso.classList.remove('visible'); }
+  function terminarTutorial() {
+    ocultarAviso();
+    if (tutorialHecho) return;
+    tutorialHecho = true;
+    try { sessionStorage.setItem(CLAVE_TUTORIAL, '1'); } catch (e) { /* solo dura esta página */ }
+  }
+
   let objetivoVelo = 0;
   function animarEstilo(dt) {
     const k = 1 - Math.exp(-dt * 12);
@@ -1262,6 +1305,11 @@ function iniciar(contenedor) {
       if (bajada.t >= 1) { bajada.sup.visible = false; bajada = null; }
     }
     if (PISTA && !pistaHecha && !estado.textContent && capas.size === ARCHIVOS.length) mostrarPista();
+    // Paso 1 del tutorial: esto solo corre con el visor en pantalla, así que aparece cuando se ve la casa.
+    if (!tutorialHecho && !paso1Mostrado && !PISTA && !estado.textContent && capas.size === ARCHIVOS.length) {
+      paso1Mostrado = true;
+      mostrarAviso('Tocá un módulo para ver más');
+    }
     if (pulso) {
       pulso.t += dt;
       PULSO_MAT.opacity = 0.32 * Math.pow(Math.sin(Math.PI * pulso.t / 0.8), 2);
@@ -1704,7 +1752,8 @@ function iniciar(contenedor) {
       mostrarTooltip(m.id, x, y);
       return;
     }
-    if (!m) { ocultarTooltip(); resaltar(null); toqueAnterior = null; toqueVacio(); return; }
+    // Tocar afuera cierra el cartel; el renglón del tutorial queda.
+    if (!m) { ocultarTooltip(); if (tutorialHecho) ocultarAviso(); resaltar(null); toqueAnterior = null; toqueVacio(); return; }
     vacioAnterior = 0;
     const mismoToque = toqueAnterior === m.id;
     clearTimeout(relojToque);
@@ -1712,11 +1761,22 @@ function iniciar(contenedor) {
       toqueAnterior = m.id;
       resaltar(m.id !== 'base' ? m.id : null);
       mostrarTooltip(m.id, x, y, 'toque');
+      // Paso 2 (o el recordatorio), salvo en Inicio (no se quita), en Crecer sin Descanso (no se puede)
+      // y con el botón Sumar / Quitar. En esos, si el tutorial sigue, el renglón queda como estaba.
+      const ahora = performance.now();
+      const lento = ultimoToque && ultimoToque.id === m.id && ahora - ultimoToque.t < 2000;
+      ultimoToque = { id: m.id, t: ahora };
+      const sePuede = m.id !== 'base' && !(m.id === 'grow' && !leerSeleccion().has('rest')) && !TOQUE_BOTON;
+      if (sePuede && !tutorialHecho) mostrarAviso(textoPaso2(m.id));
+      else if (sePuede && lento && !recordatorioUsado) { recordatorioUsado = true; mostrarAviso(textoPaso2(m.id)); }
+      else if (tutorialHecho) ocultarAviso();
       relojToque = setTimeout(() => { toqueAnterior = null; }, parseInt(contenedor.dataset.dobleToque, 10) || 650);
       return;
     }
     toqueAnterior = null;
+    ultimoToque = null;
     ocultarTooltip();
+    terminarTutorial();
     alternar(m.id);
   });
   lienzo.addEventListener('pointermove', e => {
